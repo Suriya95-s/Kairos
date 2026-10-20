@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kairos Live View</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Cascadia Code', 'Fira Mono', monospace; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+  header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 20px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 1rem; font-weight: 600; color: #58a6ff; }
+  #status-badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; background: #238636; color: #fff; }
+  #status-badge.paused { background: #d29922; }
+  #status-badge.disconnected { background: #6e7681; }
+  .main { display: grid; grid-template-columns: 1fr 340px; gap: 0; height: calc(100vh - 49px); }
+  #timeline { overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+  #sidebar { border-left: 1px solid #30363d; overflow-y: auto; padding: 12px; }
+  .event { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; font-size: 0.8rem; }
+  .event.approval_requested { border-color: #d29922; }
+  .event.approval_response.approved { border-color: #238636; }
+  .event.approval_response.denied { border-color: #da3633; }
+  .event.paused { border-color: #d29922; }
+  .event.steering_injected { border-color: #58a6ff; }
+  .event time { color: #8b949e; font-size: 0.7rem; margin-right: 6px; }
+  .event .type { font-weight: 600; margin-right: 4px; }
+  .event .detail { color: #8b949e; word-break: break-all; }
+  #approvals { margin-bottom: 16px; }
+  #approvals h2 { font-size: 0.8rem; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .approval-card { background: #161b22; border: 1px solid #d29922; border-radius: 6px; padding: 10px; margin-bottom: 8px; font-size: 0.8rem; }
+  .approval-card .id { color: #8b949e; font-size: 0.7rem; margin-bottom: 4px; }
+  .approval-card .tool { font-weight: 600; margin-bottom: 2px; }
+  .approval-card .reason { color: #8b949e; margin-bottom: 8px; word-break: break-all; }
+  .btn-row { display: flex; gap: 6px; }
+  .btn { border: none; border-radius: 4px; padding: 4px 10px; font-size: 0.75rem; cursor: pointer; font-family: inherit; }
+  .btn-approve { background: #238636; color: #fff; }
+  .btn-deny { background: #da3633; color: #fff; }
+  .btn-approve:hover { background: #2ea043; }
+  .btn-deny:hover { background: #f85149; }
+  #controls { margin-bottom: 16px; }
+  #controls h2 { font-size: 0.8rem; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  #steer-input { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 6px 8px; font-size: 0.8rem; font-family: inherit; resize: vertical; min-height: 60px; }
+  #steer-btn { margin-top: 6px; background: #1f6feb; color: #fff; border: none; border-radius: 4px; padding: 5px 12px; font-size: 0.8rem; cursor: pointer; font-family: inherit; }
+  #pause-btn { width: 100%; background: #d29922; color: #0d1117; border: none; border-radius: 4px; padding: 5px; font-size: 0.8rem; cursor: pointer; font-family: inherit; margin-top: 6px; font-weight: 600; }
+  #pause-btn.paused { background: #238636; }
+  .empty { color: #8b949e; font-size: 0.8rem; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⟳ Kairos Live View</h1>
+  <span id="status-badge" class="disconnected">connecting…</span>
+  <span id="step-counter" style="font-size:0.75rem;color:#8b949e;margin-left:auto"></span>
+</header>
+<div class="main">
+  <div id="timeline"><p class="empty">Waiting for events…</p></div>
+  <div id="sidebar">
+    <div id="approvals">
+      <h2>Pending Approvals</h2>
+      <div id="approval-list"><p class="empty">None</p></div>
+    </div>
+    <div id="controls">
+      <h2>Controls</h2>
+      <textarea id="steer-input" placeholder="Steering message…"></textarea>
+      <button id="steer-btn">Inject Steering</button>
+      <button id="pause-btn">Pause Agent</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  let paused = false;
+  let stepCount = 0;
+
+  // ── Session token ───────────────────────────────────────────
+  // The server prints the live-view URL with ?token=… . Capture it on first
+  // load, persist it for this tab, then strip it from the address bar so it is
+  // not left in history. All /api and /events requests carry it.
+  const TOKEN = (() => {
+    const u = new URL(location.href);
+    const fromQuery = u.searchParams.get('token');
+    if (fromQuery) {
+      sessionStorage.setItem('kairos_token', fromQuery);
+      u.searchParams.delete('token');
+      history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || ''));
+    }
+    return sessionStorage.getItem('kairos_token') || '';
+  })();
+  const authHeaders = (h = {}) => (TOKEN ? { ...h, Authorization: 'Bearer ' + TOKEN } : h);
+  const withToken = (p) => (TOKEN ? p + (p.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN) : p);
+
+  const timeline = document.getElementById('timeline');
+  const approvalList = document.getElementById('approval-list');
+  const statusBadge = document.getElementById('status-badge');
+  const stepCounter = document.getElementById('step-counter');
+  const pauseBtn = document.getElementById('pause-btn');
+  const steerBtn = document.getElementById('steer-btn');
+  const steerInput = document.getElementById('steer-input');
+
+  // ── SSE stream ──────────────────────────────────────────────
+  function connect() {
+    const es = new EventSource(withToken('/events'));
+    es.onopen = () => setStatus('running');
+    es.onerror = () => { setStatus('disconnected'); setTimeout(connect, 3000); };
+    es.onmessage = e => {
+      try { handleEvent(JSON.parse(e.data)); } catch { /* ignore malformed */ }
+    };
+  }
+
+  function setStatus(s) {
+    statusBadge.textContent = s;
+    statusBadge.className = s === 'running' ? '' : s;
+    if (s === 'paused') statusBadge.className = 'paused';
+    if (s === 'disconnected') statusBadge.className = 'disconnected';
+  }
+
+  function handleEvent(ev) {
+    appendEvent(ev);
+    if (ev.type === 'approval_requested') refreshApprovals();
+    if (ev.type === 'approval_response') refreshApprovals();
+    if (ev.type === 'paused') { paused = true; setPauseBtn(); setStatus('paused'); }
+    if (ev.type === 'resumed') { paused = false; setPauseBtn(); setStatus('running'); }
+  }
+
+  // ── Timeline ────────────────────────────────────────────────
+  function appendEvent(ev) {
+    if (timeline.querySelector('.empty')) timeline.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'event ' + (ev.type || '');
+    if (ev.type === 'approval_response') div.classList.add(ev.approved ? 'approved' : 'denied');
+    const t = new Date(ev.timestamp || Date.now());
+    const timeStr = t.toTimeString().slice(0, 8);
+    div.innerHTML = `<time>${timeStr}</time><span class="type">${ev.type}</span><span class="detail">${_summarize(ev)}</span>`;
+    timeline.appendChild(div);
+    timeline.scrollTop = timeline.scrollHeight;
+    if (ev.type && ev.type.startsWith('approval') || ev.type === 'steering_injected' || ev.type === 'paused' || ev.type === 'resumed') return;
+    stepCount++;
+    stepCounter.textContent = `${stepCount} events`;
+  }
+
+  function _summarize(ev) {
+    if (ev.type === 'approval_requested') return `tool=${ev.tool} — ${ev.reason || ''}`;
+    if (ev.type === 'approval_response') return `${ev.approved ? '✓ approved' : '✗ denied'} id=${ev.id} ${ev.reason || ''}`;
+    if (ev.type === 'steering_injected') return ev.message || '';
+    if (ev.type === 'clarification_asked') return `"${ev.question || ''}"`;
+    if (ev.type === 'clarification_answered') return `"${ev.answer || ''}"`;
+    return Object.entries(ev).filter(([k]) => !['type','timestamp','_ts'].includes(k)).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(' ');
+  }
+
+  // ── Approvals panel ─────────────────────────────────────────
+  function refreshApprovals() {
+    fetch('/api/pending', { headers: authHeaders() }).then(r => r.json()).then(data => {
+      const pending = data.pending || [];
+      if (pending.length === 0) { approvalList.innerHTML = '<p class="empty">None</p>'; return; }
+      approvalList.innerHTML = '';
+      for (const req of pending) {
+        const card = document.createElement('div');
+        card.className = 'approval-card';
+        card.innerHTML = `
+          <div class="id">id: ${req.id.slice(0, 8)}…</div>
+          <div class="tool">${req.tool}</div>
+          <div class="reason">${req.reason}</div>
+          <div class="btn-row">
+            <button class="btn btn-approve" data-id="${req.id}">Approve</button>
+            <button class="btn btn-deny" data-id="${req.id}">Deny</button>
+          </div>`;
+        approvalList.appendChild(card);
+      }
+    }).catch(() => {});
+  }
+
+  approvalList.addEventListener('click', e => {
+    const btn = e.target.closest('.btn');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const approved = btn.classList.contains('btn-approve');
+    const endpoint = approved ? `/api/approve/${id}` : `/api/deny/${id}`;
+    fetch(endpoint, { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: '{}' })
+      .then(() => refreshApprovals()).catch(() => {});
+  });
+
+  // ── Steering ────────────────────────────────────────────────
+  steerBtn.addEventListener('click', () => {
+    const message = steerInput.value.trim();
+    if (!message) return;
+    fetch('/api/steer', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ message }) })
+      .then(() => { steerInput.value = ''; }).catch(() => {});
+  });
+
+  // ── Pause / Resume ───────────────────────────────────────────
+  function setPauseBtn() {
+    pauseBtn.textContent = paused ? 'Resume Agent' : 'Pause Agent';
+    pauseBtn.className = paused ? 'paused' : '';
+  }
+
+  pauseBtn.addEventListener('click', () => {
+    const endpoint = paused ? '/api/resume' : '/api/pause';
+    fetch(endpoint, { method: 'POST', headers: authHeaders() }).then(() => {
+      paused = !paused;
+      setPauseBtn();
+      setStatus(paused ? 'paused' : 'running');
+    }).catch(() => {});
+  });
+
+  // ── Init ─────────────────────────────────────────────────────
+  fetch('/api/status', { headers: authHeaders() }).then(r => r.json()).then(s => {
+    paused = s.paused;
+    setPauseBtn();
+    if (paused) setStatus('paused');
+    else setStatus('connecting…');
+  }).catch(() => {});
+
+  refreshApprovals();
+  connect();
+})();
+</script>
+</body>
+</html>

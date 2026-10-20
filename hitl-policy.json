@@ -1,0 +1,49 @@
+{
+  "_comment": "Kairos HITL approval policy. Rules are evaluated in order; first match wins.",
+  "rules": [
+    {
+      "tool": "run_command",
+      "command": "rm -rf",
+      "require_approval": true,
+      "reason": "Recursive delete — confirm before removing files"
+    },
+    {
+      "tool": "run_command",
+      "command": "DROP TABLE",
+      "require_approval": true,
+      "reason": "Destructive database operation"
+    },
+    {
+      "tool": "run_command",
+      "command": "git push --force",
+      "require_approval": true,
+      "reason": "Force push can overwrite upstream history"
+    },
+    {
+      "tool": "run_command",
+      "command": "npm publish",
+      "require_approval": true,
+      "reason": "Publishing to npm registry"
+    },
+    {
+      "tool": "delete_file",
+      "require_approval": true,
+      "reason": "Permanent file deletion"
+    },
+    {
+      "tool": "read_file",
+      "auto_approve": true,
+      "reason": "Read-only operations are always safe"
+    },
+    {
+      "tool": "list_dir",
+      "auto_approve": true,
+      "reason": "Read-only operations are always safe"
+    },
+    {
+      "tool": "think",
+      "auto_approve": true,
+      "reason": "Internal reasoning only"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+#  kairos — the front door (bash / WSL / git-bash).
+#
+#    kairos                 make sure the daemon is up, open the TUI attached
+#    kairos <verb> [...]    kernel CLI passthrough (usage, ontology, llm,
+#                           missions, say, status, ...)
+#
+#  No model/endpoint/key handling here: credentials live in the encrypted
+#  vault and models in the registry — the launcher only launches.
+# ──────────────────────────────────────────────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: node not found. Install Node.js 18+ from https://nodejs.org" >&2
+  exit 1
+fi
+
+if [ $# -eq 0 ]; then
+  # `start` is idempotent — a running daemon just says so.
+  node "$SCRIPT_DIR/src/kernel/cli.js" start
+  exec node "$SCRIPT_DIR/apps/tui/index.js" --daemon --root "$SCRIPT_DIR"
+fi
+
+exec node "$SCRIPT_DIR/src/kernel/cli.js" "$@"

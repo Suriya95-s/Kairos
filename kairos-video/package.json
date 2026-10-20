@@ -1,0 +1,17 @@
+{
+  "name": "kairos-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Remotion project: the Kairos feature-tour video. Separate from the zero-dependency Kairos tree on purpose.",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render KairosTour out/kairos-tour.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.246",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.246"
+  }
+}

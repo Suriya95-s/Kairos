@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mcp-servers-config",
+  "title": "Kairos MCP Servers Configuration",
+  "description": "Defines MCP servers to connect to on Kairos startup.",
+  "type": "object",
+  "required": ["servers"],
+  "additionalProperties": false,
+  "properties": {
+    "servers": {
+      "type": "array",
+      "description": "List of MCP servers to connect to.",
+      "items": {
+        "type": "object",
+        "required": ["name", "transport"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique server name — used as tool prefix (e.g. 'github' → tools named 'github__*')",
+            "pattern": "^[a-z][a-z0-9_-]*$"
+          },
+          "transport": {
+            "type": "string",
+            "enum": ["stdio", "http", "sse"],
+            "description": "Transport protocol."
+          },
+          "command": {
+            "type": "string",
+            "description": "Executable to spawn (required for stdio transport)."
+          },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Arguments passed to the command.",
+            "default": []
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Environment variables to set for the spawned process.",
+            "default": {}
+          },
+          "url": {
+            "type": "string",
+            "description": "Base URL for HTTP/SSE transport."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "HTTP headers for HTTP/SSE transport (e.g. Authorization).",
+            "default": {}
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Set true to skip this server without removing it from the config.",
+            "default": false
+          },
+          "autoApprove": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "MCP tool names that don't require HITL approval. Use ['*'] to auto-approve all reads.",
+            "default": []
+          },
+          "requireApproval": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "MCP tool names that always require HITL approval (overrides autoApprove).",
+            "default": []
+          }
+        },
+        "if": { "properties": { "transport": { "const": "stdio" } }, "required": ["transport"] },
+        "then": { "required": ["command"] },
+        "else": { "required": ["url"] }
+      }
+    }
+  }
+}

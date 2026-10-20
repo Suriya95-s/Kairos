@@ -1,0 +1,44 @@
+{
+  "name": "advanced-agent-loop",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The longest-running, most stable autonomous agent loop. No LangGraph. Pure loop + file-based state.",
+  "main": "src/cli.js",
+  "bin": {
+    "agent": "src/cli.js",
+    "kairos": "kairos",
+    "kairos-tui": "apps/tui/index.js",
+    "kairosd": "src/kernel/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test tests/*.test.js",
+    "test:stress": "node --test tests/stress.test.js",
+    "test:all": "bash scripts/test-all.sh",
+    "bench:reflex": "node eval/reflex-benchmark.js",
+    "bench:reflex:offline": "node eval/reflex-benchmark.js --offline-only",
+    "eval:router-coverage": "node eval/router-coverage.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "agent",
+    "autonomous",
+    "loop",
+    "llm"
+  ],
+  "license": "MIT",
+  "directories": {
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TW-10519/Advanced-agent-loop.git"
+  },
+  "author": "",
+  "bugs": {
+    "url": "https://github.com/TW-10519/Advanced-agent-loop/issues"
+  },
+  "homepage": "https://github.com/TW-10519/Advanced-agent-loop#readme"
+}

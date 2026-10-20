@@ -1,0 +1,56 @@
+{
+  "_comment": "Kairos default MCP server bundle. Copy to mcp-servers.json and edit to customize. Set AGENT_MCP_ENABLED=1 to activate.",
+  "servers": [
+    {
+      "name": "filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "disabled": false,
+      "autoApprove": ["read_file", "read_multiple_files", "list_directory", "directory_tree", "search_files", "get_file_info"],
+      "requireApproval": ["write_file", "create_directory", "move_file", "delete_file"]
+    },
+    {
+      "name": "github",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "disabled": true,
+      "autoApprove": ["search_repositories", "get_file_contents", "list_commits", "get_issue", "list_issues", "list_pull_requests"],
+      "requireApproval": ["create_issue", "create_pull_request", "push_files", "create_branch", "fork_repository"]
+    },
+    {
+      "name": "postgres",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"],
+      "disabled": true,
+      "autoApprove": ["query"],
+      "requireApproval": []
+    },
+    {
+      "name": "fetch",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "disabled": true,
+      "autoApprove": ["fetch"],
+      "requireApproval": []
+    },
+    {
+      "name": "brave_search",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      },
+      "disabled": true,
+      "autoApprove": ["brave_web_search", "brave_local_search"],
+      "requireApproval": []
+    }
+  ]
+}

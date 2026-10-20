@@ -1,0 +1,16 @@
+# Agent runtime artifacts (generated per run)
+.agent/
+result/
+playground_app/
+
+# Progress and change logs from runs
+progress.md
+progress.md:Zone.Identifier
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+*.Zone.Identifier

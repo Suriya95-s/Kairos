@@ -1,0 +1,33 @@
+export function buildRouteTrace({
+  step,
+  stage,
+  subtask,
+  domains = {},
+  entities = [],
+  ontologyTags = [],
+  primaryBank,
+  jumpBanks = [],
+  retrievalHits = [],
+  cacheHit = false,
+  latencyMs = 0,
+  controller = null,
+  routeSummary = '',
+}) {
+  return {
+    step,
+    stage,
+    subtask,
+    domain_scores: domains,
+    entities,
+    ontology_tags: ontologyTags,
+    primary_bank: primaryBank,
+    jump_banks: jumpBanks,
+    route_path: [primaryBank, ...jumpBanks].filter(Boolean),
+    retrieved_memory_ids: retrievalHits.map(({ entry }) => entry.memory_id).filter(Boolean),
+    cache_hit: cacheHit,
+    route_summary: routeSummary,
+    controller,
+    latency_ms: latencyMs,
+    timestamp: new Date().toISOString(),
+  };
+}

@@ -1,0 +1,414 @@
+# The Advanced Agent Loop
+
+## Overview
+
+The Advanced Agent Loop is a production-oriented autonomous agent runtime built around a simple idea:
+
+- keep the control flow as a plain loop
+- keep state on disk instead of in memory
+- rebuild context from files every step
+- let the model choose one action at a time
+
+It avoids heavy orchestration frameworks such as LangGraph-style graph runtimes and instead relies on a durable file-based state machine. The result is a loop that is easier to inspect, resume, debug, and extend.
+
+At its core, the loop is:
+
+1. build context from files
+2. call the model
+3. parse one JSON tool action
+4. execute the tool
+5. write results back to disk
+6. repeat until verified completion
+
+---
+
+## Core Philosophy
+
+The loop is designed around a few strong principles:
+
+- The filesystem is the state machine.
+- Prompts should be rebuilt from durable artifacts, not chat history.
+- Long runs need compaction, not bigger and bigger message chains.
+- The agent should survive crashes and resume from checkpoints.
+- The agent should be disciplined by runtime structure, not only by prompting.
+- Important knowledge should be written to files so it survives compaction and restarts.
+
+This makes the loop suitable for long-running autonomous work such as coding, debugging, multi-file edits, verification, and iterative repair.
+
+---
+
+## High-Level Architecture
+
+The main runtime is organized around these core modules:
+
+- `src/cli.js`: bootstraps the run, model configuration, workspace, and resume flow
+- `src/loop.js`: the main execution loop
+- `src/context.js`: builds the structured prompt
+- `src/llm.js`: handles model calls and retry behavior
+- `src/state.js`: reads and writes persistent state
+- `src/memory.js`: manages recent working memory
+- `src/compaction.js`: summarizes older context when needed
+- `src/stages.js`: enforces stage-based execution discipline
+- `src/skills.js`: loads both legacy tool-skills and standards-based `SKILL.md` skills
+- `src/lmma/`: the LMMA memory-routing subsystem
+
+The workspace also acts as part of the runtime. Important state is stored in:
+
+- `SOUL.md`
+- `AGENTS.md`
+- `USER.md`
+- `MEMORY.md`
+- `.agent/task.md`
+- `.agent/plan.md`
+- `.agent/progress.md`
+- `.agent/context-summary.md`
+- `.agent/checkpoint.json`
+- `.agent/memory/`
+- `.agent/lmma/`
+
+---
+
+## How It Works
+
+Each step follows a durable cycle:
+
+1. The loop reads the current task, plan, memory, summaries, learnings, and runtime state.
+2. It assembles a structured prompt from those files.
+3. It asks the LLM for exactly one tool action in JSON form.
+4. It parses and validates that action.
+5. It executes the tool.
+6. It records the action and result into progress and checkpoint state.
+7. It updates memory, stage status, and LMMA route state.
+8. It decides whether to compact context, continue, verify, or finish.
+
+This design means the agent does not rely on hidden conversation memory. It can be resumed because the state lives in files, not only in RAM.
+
+---
+
+## The 5-Layer Context Model
+
+The prompt is assembled from five layers:
+
+1. Identity
+   - `SOUL.md`
+   - `AGENTS.md`
+   - tool definitions
+
+2. Knowledge
+   - task description
+   - `MEMORY.md`
+   - learnings
+   - user profile
+
+3. State
+   - `plan.md`
+   - `context-summary.md`
+   - focus chain
+   - stage/runtime status
+
+4. Session
+   - recent working-memory steps
+   - stale file alerts
+
+5. Guidance
+   - compaction/recovery prompts
+   - error warnings
+   - stage guidance
+   - focus prompts
+   - LMMA guidance
+   - relevant skill guidance
+
+This is one of the loop’s biggest specialties: the model sees a curated operational context rather than an ever-growing transcript.
+
+---
+
+## Stage-Based Execution
+
+The loop uses a six-stage progression model:
+
+1. Intake
+2. Discovery
+3. Planning
+4. Execution
+5. Verification
+6. Finalization
+
+This is important because it reduces drift. The model is not supposed to do everything at every moment. The stage system controls:
+
+- what tools are exposed
+- what the current goal is
+- what artifacts must exist
+- when verification is required
+- when finish is allowed
+
+The stage architecture is one of the loop’s strongest reliability features because it turns a flat loop into a disciplined execution lifecycle without hardcoding task-specific modes.
+
+---
+
+## Memory System
+
+The loop uses several memory layers together:
+
+### Working memory
+
+Recent steps are kept in a sliding window so the model can maintain local continuity.
+
+### Context summary
+
+Older actions are compacted into `.agent/context-summary.md` so long runs remain stable.
+
+### Persistent memory
+
+Longer-term facts and learnings are written into:
+
+- `MEMORY.md`
+- `.agent/learnings.md`
+- `.agent/memory/YYYY-MM-DD.md`
+
+### Checkpoint state
+
+Machine-readable runtime state is written into `.agent/checkpoint.json` after each step.
+
+This combination gives the loop both short-term continuity and long-term survivability.
+
+---
+
+## LMMA Integration
+
+One of the major newer additions is LMMA, the Layered Memory Map Architecture, integrated as a runtime subsystem rather than a prompt trick.
+
+LMMA adds:
+
+- domain detection
+- entity and intent extraction
+- ontology mapping
+- memory-bank routing
+- cross-bank jumps
+- local retrieval
+- route tracing
+- post-step memory writeback
+
+Its runtime flow is:
+
+1. inspect the current task, subtask, stage, and recent actions
+2. detect domains
+3. extract compact entities and intents
+4. map them to ontology tags
+5. resolve candidate memory banks
+6. retrieve relevant memory
+7. compose a working-memory packet
+8. inject routed memory into prompt context
+9. write back memory and route traces after each step
+
+LMMA state is stored in `.agent/lmma/`, including:
+
+- active route
+- working memory packet
+- route traces
+- importance maps
+- retrieval cache
+- persistent memory banks such as `code`, `testing`, `project`, `docs`, `database`, and others
+
+This makes the loop more than a flat recent-history agent. It gives it a memory-routing layer that can bias the model toward more relevant prior knowledge.
+
+---
+
+## Skills System
+
+Another major newer addition is the expanded skills subsystem.
+
+The loop now supports:
+
+- legacy executable markdown skills in `.agent/skills/*.md`
+- standards-based `SKILL.md` directory skills
+
+It can load standard skills from:
+
+- `skills/`
+- `.agents/skills/`
+- `.agent/skills/`
+- `.claude/skills/`
+
+Repo-local `skills/` is the preferred first-class directory.
+
+The system does two kinds of skill work:
+
+1. Executable tool-skills
+   - reusable JS or command-backed extensions
+   - dynamically callable by the loop
+
+2. Reference skills
+   - `SKILL.md` procedural guidance
+   - selected by relevance
+   - injected into context when useful
+
+This is a strong design choice because it allows the agent to combine:
+
+- runtime tools
+- reusable procedures
+- repo-owned operational knowledge
+
+without hardwiring everything into the base prompt.
+
+---
+
+## Tooling Model
+
+The loop uses explicit tools instead of freeform action generation. Key categories include:
+
+- filesystem tools
+- shell execution
+- planning tools
+- memory tools
+- identity tools
+- skill creation
+- web and search tools
+
+The model is expected to return one raw JSON action per step. This makes the loop inspectable and recoverable, and it also makes it easier to enforce guards and stage policies.
+
+---
+
+## Reliability Features
+
+The loop includes a number of runtime safety systems:
+
+- checkpointing after every step
+- crash-safe resume
+- multi-pass JSON parsing for messy model output
+- repeated-action and repeated-error guards
+- stale file alerts
+- file freshness tracking
+- command tracking
+- anti-thrash behavior
+- finalization discipline
+- completion verification
+- smoke-test discipline for generated apps
+
+These are not cosmetic features. They are what make the loop practical for long autonomous runs.
+
+---
+
+## Speciality
+
+What makes this loop special is not one single feature. It is the combination of:
+
+- file-based state instead of hidden conversational state
+- structured prompt rebuilding every step
+- stage-based execution discipline
+- compaction for long runs
+- crash recovery
+- LMMA memory routing
+- repo-managed and dynamic skills
+- generic architecture without heavy frameworks
+
+In other words, it is designed to behave like a persistent working system rather than a clever prompt wrapper.
+
+---
+
+## Advantages
+
+- Very inspectable: most important state is visible as files.
+- Crash resilient: resume is natural because state is persisted.
+- Long-run friendly: compaction and summaries prevent context blowup.
+- Framework-light: easy to reason about compared with graph-heavy runtimes.
+- Extensible: tools, skills, and memory subsystems can be added incrementally.
+- Model-agnostic: designed for OpenAI-compatible endpoints, local or hosted.
+- Human-auditable: plans, summaries, memory, and route traces are readable.
+- Better than pure chat history for autonomous tasks because context is reconstructed from durable truth.
+
+---
+
+## Newly Implemented Things
+
+The recent evolution of this loop includes several important upgrades:
+
+### LMMA runtime integration
+
+- Added `src/lmma/` subsystem
+- Seeded LMMA files and banks through `src/state.js`
+- Wired LMMA into `src/loop.js` and `src/context.js`
+- Added route traces, active route state, and working-memory packets
+
+### LMMA hardening pass
+
+- tightened entity extraction
+- improved domain detection
+- normalized retrieval scoring
+- improved writeback bank selection
+- added benchmark utilities for baseline vs LMMA comparison
+
+### Skills expansion
+
+- added support for standards-based `SKILL.md` skills
+- made repo-local `skills/` the preferred directory
+- added relevance-based skill selection and context injection
+- kept compatibility with legacy executable `.agent/skills/*.md` skills
+
+### Stage-oriented reliability emphasis
+
+- stronger execution contracts
+- better recovery guidance
+- clearer finalization discipline
+- improved anti-drift structure
+
+---
+
+## Pros
+
+- Clear architecture with minimal framework overhead
+- Strong durability and resumability
+- Good fit for long coding and repair tasks
+- Human-readable state and memory system
+- Easier debugging than opaque agent stacks
+- Can improve over time through learnings, memory, and skills
+- LMMA provides a meaningful path toward stronger memory routing
+- Skills support allows reusable procedural knowledge to live with the repo
+
+---
+
+## Cons
+
+- More file management overhead than a very simple chat loop
+- Reliability still depends on the quality of the underlying model
+- Heuristic subsystems like LMMA need tuning and benchmarking
+- Skill usage can be hard to prove without explicit tracing if logs do not capture prompt blocks
+- A flat loop, even with guards, can still stall or thrash on difficult tasks
+- Verification can pass while the produced artifact is still weak in real interactive use
+- Requires careful maintenance of prompts, guards, stages, and memory rules as the system grows
+
+---
+
+## Current Real-World Limitations
+
+Even with the newer work, this loop is not magic. Some real limitations remain:
+
+- A run may finish with artifacts that pass smoke checks but still contain runtime flaws.
+- Skills may be available but not always visibly used unless explicit skill-use tracing is added.
+- LMMA is integrated and useful, but its gains should be measured empirically, not assumed.
+- Heuristic routing and retrieval can still be noisy.
+- The loop is strong structurally, but it is not yet a guaranteed high-performance autonomous engineer.
+
+That honesty matters. The architecture is promising and capable, but mature reliability still comes from iteration, benchmarking, and better evidence loops.
+
+---
+
+## Where It Is Strongest
+
+This loop is strongest when used for:
+
+- autonomous code generation
+- multi-file code repair
+- iterative debugging
+- long-running project execution
+- resumable local-agent workflows
+- tasks that benefit from persistent memory and plan tracking
+
+It is especially good when you want the agent’s internal state to remain understandable to a human collaborator.
+
+---
+
+## Summary
+
+The Advanced Agent Loop is a durable, file-centric autonomous agent runtime designed for long, practical work rather than short conversational exchanges. Its architecture combines structured context assembly, stage-based execution, persistent memory, crash recovery, LMMA memory routing, and an extensible skills system.
+
+Its biggest strengths are transparency, resumability, modularity, and long-run discipline. Its biggest weaknesses are the remaining heuristic rough edges around retrieval quality, runtime verification fidelity, and provable skill usage. Even so, it is a strong foundation for a serious autonomous coding loop and a much more inspectable system than many opaque agent frameworks.
